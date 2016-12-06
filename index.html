@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <title>Searchy</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="css/bootstrap.css" type="text/css" crossorigin="anonymous">
+    <link rel="stylesheet" href="css/bootstrap-grid.css" type="text/css" crossorigin="anonymous">
+    <link rel="stylesheet" href="css/bootstrap-flex.css" type="text/css" crossorigin="anonymous">
+    <link rel="stylesheet" href="css/bootstrap-reboot.css" type="text/css" crossorigin="anonymous">
+    <link rel="stylesheet" href="css/github-markdown.css" type="text/css" crossorigin="anonymous">
+    <link rel="stylesheet" href="css/highlight.css" type="text/css" crossorigin="anonymous">
+    <style>
+
+        body { padding: 1em; }
+        code.fold, code.foldable { display: none; }
+        dd { margin-top: 0.5em; margin-left: 1em; }
+
+        span.search-keyword {
+            border: 3px solid red;
+            font-weight: bold;
+            font-size: 120%;
+        }
+
+        input.form-control {
+            margin-top: 2em;
+        }
+
+        ul.search-result-list {
+            margin-top: 1em;
+            padding-left: 1em;
+            list-style-type:square;
+        }
+
+        li.search-result-li + li.search-result-li { padding-top: 1em; }
+
+        li.search-result-li > .search-result-title { font-weight: bold; }
+        li.search-result-li > div.search-result {
+            margin: 0.5em;
+            overflow: scroll;
+            overflow-x: hidden;
+            padding: 5px;
+            border: 1px solid lightgray;
+            line-height: 1.5em;
+            max-height: 10em; // about 6 lines
+        }
+
+        li.search-result-li > div.sourceCode > pre.sourceCode > code.sourceCode * {
+            line-height: 9px;
+        }
+
+    </style>
+</head>
+<body>
+
+<h1>Searchy</h1>
+
+<ul id="searchy" class="nav nav-tabs">
+    <li class="active"><a data-toggle="tab" href="#postSearchy">Post</a></li>
+    <li><a data-toggle="tab" href="#codeSearchy">Code</a></li>
+    <li><a data-toggle="tab" href="#noteSearchy">Note</a></li>
+</ul>
+
+<div class="tab-content">
+    <div class="search-box tab-pane fade in active" id="postSearchy">
+        <input type="text" id="postSearchyInput" placeholder="search posts" class="form-control"/>
+        <div class="searchyOutput">
+            <ul id="postSearchyOutput" class="search-result-list">
+            </ul>
+        </div>
+    </div>
+    <div class="search-box tab-pane fade" id="codeSearchy">
+        <input type="text" id="codeSearchyInput" placeholder="search code" class="form-control"/>
+        <div class="searchyOutput">
+            <ul id="codeSearchyOutput" class="search-result-list">
+            </ul>
+        </div>
+    </div>
+    <div class="search-box tab-pane fade" id="noteSearchy">
+        <input type="text" id="noteSearchyInput" placeholder="search notes" class="form-control"/>
+        <p>Tip：点击具体的条目可以加载完整内容。</p>
+        <div class="searchyOutput">
+            <ul id="noteSearchyOutput" class="search-result-list">
+            </ul>
+        </div>
+    </div>
+</div>
+
+<script src="js/jquery.min.js" crossorigin="anonymous"></script>
+<script src="js/lazyload.min.js" crossorigin="anonymous"></script>
+<script src="js/tether.min.js" crossorigin="anonymous"></script>
+<script src="js/bootstrap.min.js" crossorigin="anonymous"></script>
+<script>
+
+    $("#searchy > li > a").click(function(e){
+        e.preventDefault();
+        $(this).tab('show');
+    });
+
+    $('img').each(function(){
+        var src = $(this).attr('src');
+        $(this).attr({
+            src: "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==",
+            'data-src': src,
+            onload: "lzld(this)"
+        });
+    });
+
+    var postSearchResult = {};
+    var postSearchFunction = function(xmlPath, inputNode, outputNode) {
+        'use strict';
+        $.ajax({
+            url: xmlPath,
+            dataType: "xml",
+            success: function(xmlResponse) {
+                postSearchResult.chunksize = $("search", xmlResponse).attr("chunksize");
+                postSearchResult.entries = $("entry", xmlResponse).map(function() {
+                    return {
+                        index: $(this).attr("index"),
+                        url: $("url", this).text(),
+                        title: $("title", this).text(),
+                        keywords: $("keywords", this).text(),
+                        summary: $("summary", this).text(),
+                    }
+                }).get();
+
+                var $input = document.getElementById(inputNode);
+                var $output = document.getElementById(outputNode);
+                $input.addEventListener('input', function() {
+                    // clear
+                    $output.innerHTML = "";
+
+                    var queryString = this.value.trim();
+                    if (queryString.length <= 0) { return; }
+
+                    postSearchResult.entries.forEach(function(data) {
+                        var matched = false;
+                        var text = data.title + data.keywords + data.summary;
+                        var hit = text.toLowerCase().indexOf(queryString.toLowerCase());
+                        if (hit >= 0) {
+                            var $li = $('<li class="search-result-li"></li>').attr({
+                               index: data.index,
+                            });
+                            var $title = $('<a class="search-result-title"></a>').attr({
+                                href: data.url,
+                            }).text(data.title).appendTo($li);
+
+                            var regS = new RegExp(queryString, "gi");
+                            text = text.replace( regS, '<span class="search-keyword">'+queryString+'</span>');
+                            $('<div class="search-result"></div>').html('... '+text+' ...').appendTo($li);
+                            $li.appendTo($output);
+                            $li.on('click', function() {
+                                var r = $(this).attr('index');
+                                var xmlFragPath = Math.floor((postSearchResult.chunksize-1+parseInt(r))/postSearchResult.chunksize);
+                                xmlFragPath = xmlPath.substr(0, xmlPath.length-3) + xmlFragPath + ".xml";
+                                $.ajax({
+                                    url: xmlFragPath,
+                                    dataType: "xml",
+                                    success: function (xmlResponse) {
+                                        var $content = $("search > entry[index=" + r + "] > content", xmlResponse);
+                                        var text = $content.text();
+                                        // $li.html(text);
+                                        // TODO: search inside!
+                                    }
+                                });
+                            });
+                        }
+                    });
+                });
+            }
+        });
+    }
+    postSearchFunction("_wikify/search.post.xml", 'postSearchyInput', 'postSearchyOutput');
+
+    var codeSearchResult = {};
+    var codeSearchFunction = function(xmlPath, inputNode, outputNode) {
+        'use strict';
+        $.ajax({
+            url: xmlPath,
+            dataType: "xml",
+            success: function(xmlResponse) {
+                codeSearchResult.chunksize = $("search", xmlResponse).attr("chunksize");
+                codeSearchResult.entries = $("entry", xmlResponse).map(function() {
+                    if ($(this).attr("type") === "line code") {
+                        return {
+                            key: $("key", this).text(),
+                            code: $("code", this).text(),
+                        };
+                    } else {
+                        var refs = $("refs", this).text().substr(1);
+                        refs = refs.substr(0, refs.length-1);
+                        return {
+                            key: $("key", this).text(),
+                            refs: refs.split(","),
+                        };
+                    }
+                }).get();
+
+                var $input = document.getElementById(inputNode);
+                var $output = document.getElementById(outputNode);
+                $input.addEventListener('input', function() {
+                    $output.innerHTML = ""; // clear
+                    var refs = {};
+                    var queryString = this.value.replace(/\s+/g, '').toLowerCase();
+                    if (queryString.length <= 0) { return; }
+                    codeSearchResult.entries.forEach(function(data) {
+                        if (data.key.indexOf(queryString) >= 0) {
+                            if ("refs" in data) {
+                                data.refs.forEach(function(ref) {
+                                    refs[ref] = true;
+                                });
+                            } else {
+                                $('<li class="search-result-li"></li>').html(data.code).appendTo($output);
+                            }
+                        }
+                    });
+                    for (var r in refs) {
+                        var xmlFragPath = Math.floor((codeSearchResult.chunksize-1+parseInt(r))/codeSearchResult.chunksize);
+                        xmlFragPath = xmlPath.substr(0, xmlPath.length-3) + xmlFragPath + ".xml";
+                        $.ajax({
+                            url: xmlFragPath,
+                            dataType: "xml",
+                            success: function (xmlResponse) {
+                                var $content = $("search > entry[index="+r+"] > content", xmlResponse);
+                                var text = $content.text();
+                                var $code = $('<code></code>').attr({ class: "sourceCode " + $content.attr('lang') });
+                                var $pre = $('<pre></pre>').attr({ class: "sourceCode " + $content.attr('lang') });
+                                var $div = $('<div></div>').attr({ class: "sourceCode " + $content.attr('lang') });
+                                var $li = $('<li class="search-result-li"></li>').attr({ title: xmlFragPath + " (" + r + ")" });
+                                $code.html(text).appendTo($pre);
+                                $pre.appendTo($div);
+                                $div.appendTo($li);
+                                $li.appendTo($output);
+                            }
+                        });
+                    }
+                });
+            }
+        });
+    }
+    codeSearchFunction("_wikify/search.code.xml", 'codeSearchyInput', 'codeSearchyOutput');
+
+    var noteSearchResult = {};
+    var noteSearchFunction = function(xmlPath, inputNode, outputNode) {
+        'use strict';
+        $.ajax({
+            url: xmlPath,
+            dataType: "xml",
+            success: function(xmlResponse) {
+                noteSearchResult.chunksize = $("search", xmlResponse).attr("chunksize");
+                noteSearchResult.entries = $("entry", xmlResponse).map(function() {
+                    return {
+                        index: $(this).attr("index"),
+                        url: $("url", this).text(),
+                        title: $("title", this).text(),
+                        headline: $("headline", this).text(),
+                        keywords: $("keywords", this).text(),
+                    }
+                }).get();
+
+                var $input = document.getElementById(inputNode);
+                var $output = document.getElementById(outputNode);
+                $input.addEventListener('input', function() {
+                    // clear
+                    $output.innerHTML = "";
+
+                    var queryString = this.value.trim();
+                    if (queryString.length <= 0) { return; }
+                    noteSearchResult.entries.forEach(function(data) {
+                        var matched = false;
+                        var text = data.headline + data.keywords;
+                        var hit = text.toLowerCase().indexOf(queryString.toLowerCase());
+                        if (hit >= 0) {
+                            var $li = $('<li class="search-result-li"></li>');
+                            var $title = $('<a class="search-result-title"></a>').attr({
+                                href: data.url,
+                            }).text(data.title).appendTo($li);
+
+                            var regS = new RegExp(queryString, "gi");
+                            text = text.replace( regS, '<span class="search-keyword">'+queryString+'</span>');
+                            var $div = $('<div class="search-result"></div>').html('... '+text+' ...').attr({
+                                title: data.title,
+                                url: data.url,
+                                index: data.index,
+                            });
+                            $div.appendTo($li);
+                            $li.appendTo($output);
+                            $div.on('click', function() {
+                                var r = $(this).attr('index');
+                                var xmlFragPath = Math.floor((noteSearchResult.chunksize-1+parseInt(r))/noteSearchResult.chunksize);
+                                xmlFragPath = xmlPath.substr(0, xmlPath.length-3) + xmlFragPath + ".xml";
+                                $.ajax({
+                                    url: xmlFragPath,
+                                    dataType: "xml",
+                                    success: function (xmlResponse) {
+                                        var $content = $("search > entry[index=" + r + "] > content", xmlResponse);
+                                        var text = $content.text();
+                                        $div.html(text);
+                                    }
+                                });
+                            });
+                        }
+                    });
+                });
+            }
+        });
+    }
+    noteSearchFunction("_wikify/search.note.xml", 'noteSearchyInput', 'noteSearchyOutput');
+
+</script>
+</body>
+</html>
